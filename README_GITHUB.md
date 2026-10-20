@@ -15,7 +15,7 @@ This is the complete application source: public website, owner admin editor, cli
 4. Run `corepack pnpm dev`.
 
 ## Important before deploying outside the current Sites host
-GitHub stores the code; GitHub Pages cannot run this app's server-side API routes, admin editor, client portal, database, or uploads. The current app expects Cloudflare Worker bindings named `DB` and `BUCKET`. Its admin/client login also uses ChatGPT Sites authentication headers and sign-in routes. A new host needs equivalent database/file storage and a replacement login provider before the admin editor and client portal will work there.
+GitHub stores the code; GitHub Pages cannot run this app's server-side API routes, admin editor, client portal, database, or uploads. The current app expects Cloudflare Worker bindings named `DB` and `BUCKET`. Admin/client login uses company-provisioned email/password accounts and database-backed sessions. Apply the authentication migration and create accounts before using the admin editor or client portal; see [Portal login setup](PORTAL_LOGIN_SETUP.md). No email delivery service is required. Production deployment also needs the real D1 database ID in place of the generated local-development placeholder.
 
 The `lib/auth.ts` file contains the owner account allowlist. Keep this repository **Private**. Do not commit passwords, API tokens, `.env` files, or client records.
 

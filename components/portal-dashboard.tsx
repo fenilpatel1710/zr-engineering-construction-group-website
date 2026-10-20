@@ -25,7 +25,7 @@ export function PortalDashboard({ email, previewData }: { email: string; preview
     return { paid: invoices.filter(i => i.status === "paid").reduce((s, i) => s + i.amount, 0), pending: invoices.filter(i => i.status !== "paid").reduce((s, i) => s + i.amount, 0) };
   }, [project]);
   return <main className="client-portal-page">
-    <header className="client-portal-header"><a href="/website.html" className="client-brand">Z R <span>ENGINEERING & CONSTRUCTION</span></a><div>{previewData ? <a href="/portal">Open secure portal ↗</a> : <>{email} · <a href="/signout-with-chatgpt?return_to=%2Fwebsite.html">Sign out</a></>}</div></header>
+    <header className="client-portal-header"><a href="/website.html" className="client-brand">Z R <span>ENGINEERING & CONSTRUCTION</span></a><div>{previewData ? <a href="/portal">Open secure portal ↗</a> : <>{email} · <a href="/signout">Sign out</a></>}</div></header>
     <div className="client-portal-wrap"><div className="portal-page-heading"><div><small>CLIENT PORTAL</small><h1>Project dashboard</h1><p>Project updates, documents, schedule and billing.</p></div><a href="/website.html">← Company website</a></div>
       {previewData && <div className="portal-preview-banner"><b>Design preview</b> — sample project and invoice details only; no real client or payment information.</div>}
       {projects.length > 1 && <label className="portal-project-select">Project <select value={selected} onChange={e=>setSelected(Number(e.target.value))}>{projects.map((p,i)=><option key={p.id} value={i}>{p.title}</option>)}</select></label>}
