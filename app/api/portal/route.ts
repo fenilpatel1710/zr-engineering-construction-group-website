@@ -1,3 +1,4 @@
+import { normalizeEmail } from "@/lib/password-auth-service";
 import { getChatGPTUser } from "@/app/chatgpt-auth";
 import { eq } from "drizzle-orm";
 import { getDb } from "@/db";
@@ -20,7 +21,7 @@ export async function GET() {
     const projects = await readProjects();
     const visible = isOwner(user)
       ? projects
-      : projects.filter((p) => p.clientEmail.toLowerCase() === user.email.toLowerCase());
+      : projects.filter((p) => normalizeEmail(p.clientEmail) === user.email);
     return Response.json({ projects: visible, owner: isOwner(user) }, { headers: { "Cache-Control": "private, no-store" } });
   } catch {
     return Response.json({ error: "Portal data is unavailable" }, { status: 503 });

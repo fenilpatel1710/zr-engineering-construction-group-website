@@ -12,7 +12,7 @@ const config=JSON.parse(readFileSync(resolve(root,"dist/server/wrangler.json"),"
 config.d1_databases.forEach(db=>db.migrations_dir=resolve(root,"drizzle"));
 const dbConfig=join(work,"database.json");
 writeFileSync(dbConfig,JSON.stringify({name:"auth-test",compatibility_date:"2026-05-15",d1_databases:config.d1_databases}));
-const runtimeEnv={...process.env,XDG_CONFIG_HOME:join(work,"config"),CI:"true",WRANGLER_SEND_METRICS:"false",CLOUDFLARE_CF_FETCH_ENABLED:"false"};
+const runtimeEnv={...process.env,SITES_RUNTIME_ROOT:work,WRANGLER_REGISTRY_PATH:join(work,"dev-registry"),MINIFLARE_REGISTRY_PATH:join(work,"registry"),XDG_CONFIG_HOME:join(work,"config"),CI:"true",WRANGLER_SEND_METRICS:"false",CLOUDFLARE_CF_FETCH_ENABLED:"false"};
 function cli(args) {
   const result=spawnSync(process.execPath,["--import","./scripts/sites-env.mjs",wrangler,...args],{cwd:root,env:runtimeEnv,encoding:"utf8"});
   if(result.status!==0) throw new Error(result.stderr+result.stdout);
@@ -27,14 +27,31 @@ try {
   const hash=pbkdf2Sync(password,salt,100000,32,"sha256").toString("hex");
   const projects=[{id:"a",title:"Client A",clientEmail:"client-a@example.com",clientName:"A",invoices:[],photos:["/api/media/portal/photos/a.jpg"]},{id:"b",title:"Client B",clientEmail:"client-b@example.com",clientName:"B",invoices:[],photos:["/api/media/portal/photos/b.jpg"]}];
   const fixture=join(work,"fixture.sql");
-  writeFileSync(fixture,`INSERT INTO auth_users VALUES ('client-a@example.com',${quote(hash)},${quote(salt)});\nINSERT INTO site_content VALUES ('portal',${quote(JSON.stringify(projects))},'test');`,{mode:0o600});
+  writeFileSync(fixture,`INSERT INTO auth_users VALUES ('client-a@example.com',${quote(hash)},${quote(salt)});\nINSERT INTO auth_users VALUES ('fenil845@gmail.com',${quote(hash)},${quote(salt)});\nINSERT INTO site_content VALUES ('portal',${quote(JSON.stringify(projects))},'test');`,{mode:0o600});
   cli(["d1","execute","DB","--local","--config",dbConfig,"--persist-to",state,"--file",fixture]);
-  worker=spawn(process.execPath,["--import","./scripts/sites-env.mjs",wrangler,"dev","--config","dist/server/wrangler.json","--local","--persist-to",state,"--ip","127.0.0.1","--port","8793","--inspector-port","0"],{cwd:root,env:runtimeEnv,stdio:["ignore",logFd,logFd]});
+  // Disable file watching and service discovery for this fixed build. Otherwise
+  // the development proxy can restart mid-POST while registering local services.
+  const startWorker = `import {unstable_startWorker} from "wrangler";
+const worker=await unstable_startWorker({config:"dist/server/wrangler.json",dev:{remote:false,persist:process.argv[1],watch:false,inspector:false,logLevel:"warn",server:{hostname:"127.0.0.1",port:8793}}});
+await worker.ready;
+process.on("SIGTERM",()=>worker.dispose().then(()=>process.exit(0)));`;
+  worker=spawn(process.execPath,["--import","./scripts/sites-env.mjs","--input-type=module","-e",startWorker,state],{cwd:root,env:runtimeEnv,stdio:["ignore",logFd,logFd]});
   const base="http://127.0.0.1:8793";
   let ready=false;
   for(let i=0;i<80;i++) { try { if((await fetch(base+"/signin")).status===200) {ready=true;break;} } catch {} await new Promise(r=>setTimeout(r,250)); }
   assert.ok(ready,"Worker ready");
-  const post=(path,body,options={})=>fetch(base+path,{method:"POST",redirect:"manual",headers:{Origin:base,"Content-Type":"application/json",...options.headers},body:JSON.stringify(body)});
+  const post=async(path,body,options={})=>{
+    const send=()=>fetch(base+path,{method:"POST",redirect:"manual",headers:{Origin:base,"Content-Type":"application/json",...options.headers},body:JSON.stringify(body)});
+    const response=await send();
+    // Wrangler's development proxy can switch local upstreams after startup.
+    // Retry only its explicit restart response, never application failures.
+    if (response.status===503 && (await response.clone().text())==="Your worker restarted mid-request. Please try sending the request again. Only GET or HEAD requests are retried automatically.") {
+      console.log("Local Wrangler proxy restarted; retrying this test request once.");
+      await new Promise(resolve=>setTimeout(resolve,250));
+      return send();
+    }
+    return response;
+  };
   const legacy=await fetch(base+"/signin-with-chatgpt?return_to=%2Fportal",{redirect:"manual"});
   assert.equal(legacy.status,302);assert.equal(legacy.headers.get("location"),"/signin?return_to=%2Fportal");
   assert.equal((await post("/api/auth/login",{email:"a".repeat(3000)})).status,413);
@@ -57,9 +74,31 @@ try {
   assert.equal((await post("/api/portal",{projects:[]},{headers})).status,405);
   const denied=await fetch(base+"/api/portal",{method:"PUT",headers:{...headers,"Content-Type":"application/json"},body:'{"projects":[]}'});
   assert.equal(denied.status,403);
+  assert.equal((await post("/api/admin/invitations",{email:"client-b@example.com"})).status,403);
+  assert.equal((await post("/api/admin/invitations",{email:"client-b@example.com"},{headers})).status,403);
+  const ownerLogin=await post("/api/auth/login",{email:"fenil845@gmail.com",password,returnTo:"/admin"});
+  assert.equal(ownerLogin.status,200);
+  const ownerHeaders={Cookie:ownerLogin.headers.get("set-cookie").split(";")[0]};
+  assert.equal((await fetch(base+"/admin",{headers:ownerHeaders})).status,200);
+  const invitation=await post("/api/admin/invitations",{email:"client-b@example.com"},{headers:ownerHeaders});
+  assert.equal(invitation.status,200);
+  const invitationPath=(await invitation.json()).path;
+  assert.match(invitationPath,/^\/set-password#[a-f0-9-]{72}$/);
+  assert.equal((await fetch(base+"/set-password")).status,200);
+  const token=invitationPath.split("#")[1];
+  const chosenPassword=randomBytes(24).toString("hex");
+  assert.equal((await post("/api/auth/setup",{token,password:chosenPassword},{headers:{Origin:"https://other.example"}})).status,403);
+  assert.equal((await post("/api/auth/setup",{token,password:chosenPassword})).status,200);
+  assert.equal((await post("/api/auth/setup",{token,password:chosenPassword})).status,400);
+  const clientBLogin=await post("/api/auth/login",{email:"client-b@example.com",password:chosenPassword});
+  assert.equal(clientBLogin.status,200);
+  const clientBHeaders={Cookie:clientBLogin.headers.get("set-cookie").split(";")[0]};
+  const clientBPortal=await fetch(base+"/api/portal",{headers:clientBHeaders});
+  assert.deepEqual((await clientBPortal.json()).projects.map(p=>p.id),["b"]);
+  assert.equal((await post("/api/admin/invitations",{email:"client-b@example.com"},{headers:ownerHeaders})).status,409);
   assert.equal((await post("/api/auth/signout",{},{headers})).status,303);
   assert.equal((await fetch(base+"/api/portal",{headers})).status,401);
-  console.log("PASS: live Worker login, redirect safety, spoofed headers, CSRF, secure cookies, portal rendering, client isolation, owner-only writes, private media and sign-out revocation");
+  console.log("PASS: owner invitation issuance, client password setup, one-use redemption, client isolation, live Worker login, redirect safety, spoofed headers, CSRF, secure cookies, portal rendering, client isolation, owner-only writes, private media and sign-out revocation");
 } catch(error) {
   console.error(readFileSync(join(work,"worker.log"),"utf8"));throw error;
 } finally {

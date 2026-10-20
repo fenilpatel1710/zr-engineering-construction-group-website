@@ -12,7 +12,17 @@ pnpm exec wrangler deploy --config dist/server/wrangler.json
 
 Before using sign-in, open Cloudflare → D1 → your production database → Console, and execute the contents of `drizzle/0001_password_auth.sql` **once**. This creates only the new authentication tables/indexes and preserves existing projects and website content. If you use a migration runner, apply this migration through that runner instead; do not apply it twice. The `site_content` table from `0000_omniscient_gladiator.sql` must already exist.
 
-## Create an account or reset a password
+## Let clients choose their own password
+
+Apply `drizzle/0002_client_invitations.sql` once in the production D1 Console after the authentication migration above. Deploy the updated app.
+
+In `/admin`, add the client's project and sign-in email, then click **Save client dashboard**. In that client's card, click **Create password setup link**, then **Copy link**. Send the link privately to that client through your established communication channel. The client opens it, chooses and confirms a password of at least 16 characters, then signs in at `/portal` with the email assigned to their project. No company-chosen password or email provider is needed.
+
+Links expire after 24 hours and work once. Generating a replacement invalidates the previous link. Treat links as credentials: anyone holding an unused link can set that client's password. Only hashed tokens are stored in D1; the token is carried in the URL fragment rather than query parameters so it is not sent in server request URLs. Reopening the editor does not retrieve old links; generate a new one if needed.
+
+Clients with existing passwords keep their accounts and cannot be reset using an onboarding invitation. The company can reset an existing password through the trusted account tool below. There is no public registration or automated invitation email. Removing a project prevents its pending setup link from being redeemed unless another saved project still assigns that email.
+
+## Create the owner account or reset an existing password
 
 On a trusted computer with Node.js, run from the repository:
 
@@ -38,8 +48,8 @@ Caller-provided `oai-authenticated-user-*` headers no longer grant access. Legac
 
 ```sh
 pnpm build
-node --experimental-strip-types --test tests/password-auth.test.mjs
+node --experimental-strip-types --test tests/password-auth.test.mjs tests/client-invitations.test.mjs
 node tests/password-auth.integration.mjs
 ```
 
-Tests use Node 22.13+ (validated with Node 24). The integration test starts a local Worker with disposable D1/R2 state and synthetic accounts/projects; it never uses production resources. It checks login, access isolation, rejected identity spoofing, sign-out, and cookie protections. Existing repository-wide type and lint failures in the editor, portal dashboard, sidebar and project validator remain outside this change.
+Tests use Node 24 (the invitation test uses native TypeScript resolution hooks). The integration test starts a local Worker with disposable D1/R2 state and synthetic accounts/projects; it never uses production resources. It retries once only when Wrangler explicitly reports that its development proxy restarted mid-request; application failures are not retried. It checks login, access isolation, rejected identity spoofing, sign-out, and cookie protections. Existing repository-wide type and lint failures in the editor, portal dashboard, sidebar and project validator remain outside this change.

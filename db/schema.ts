@@ -21,3 +21,9 @@ export const authRateLimits = sqliteTable("auth_rate_limits", {
   count: integer("count").notNull(),
   expiresAt: integer("expires_at").notNull(),
 }, table => [index("auth_rate_limits_expiry").on(table.expiresAt)]);
+
+export const authInvitations = sqliteTable("auth_invitations", {
+  email: text("email").primaryKey(),
+  tokenHash: text("token_hash").notNull().unique(),
+  expiresAt: integer("expires_at").notNull(),
+}, table => [index("auth_invitations_expiry").on(table.expiresAt)]);

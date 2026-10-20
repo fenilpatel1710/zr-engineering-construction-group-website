@@ -1,3 +1,4 @@
+import { normalizeEmail } from "@/lib/password-auth-service";
 import { env } from "cloudflare:workers";
 import { getChatGPTUser } from "@/app/chatgpt-auth";
 import { eq } from "drizzle-orm";
@@ -21,7 +22,7 @@ export async function GET(_request: Request, { params }: { params: Promise<{ key
       let projects: Array<{ clientEmail?: string; photos?: string[]; documents?: { url: string }[]; invoices?: { invoiceUrl?: string }[] }> = [];
       try { projects = row?.body ? JSON.parse(row.body) : []; } catch { projects = []; }
       const fileUrl = `/api/media/${key}`;
-      const authorized = projects.some((p) => p.clientEmail?.toLowerCase() === user.email.toLowerCase() &&
+      const authorized = projects.some((p) => normalizeEmail(p.clientEmail) === user.email &&
         ([...(p.photos || []), ...(p.documents || []).map(d => d.url), ...(p.invoices || []).map(i => i.invoiceUrl || "")].includes(fileUrl)));
       if (!authorized) return new Response("Not found", { status: 404 });
     }
