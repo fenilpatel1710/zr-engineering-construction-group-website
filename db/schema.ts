@@ -26,4 +26,13 @@ export const authInvitations = sqliteTable("auth_invitations", {
   email: text("email").primaryKey(),
   tokenHash: text("token_hash").notNull().unique(),
   expiresAt: integer("expires_at").notNull(),
+  kind: text("kind").notNull().default("setup"),
 }, table => [index("auth_invitations_expiry").on(table.expiresAt)]);
+
+// One-time codes emailed to a signed-in user to confirm a password change.
+export const authEmailCodes = sqliteTable("auth_email_codes", {
+  email: text("email").primaryKey(),
+  codeHash: text("code_hash").notNull(),
+  expiresAt: integer("expires_at").notNull(),
+  attempts: integer("attempts").notNull().default(0),
+});

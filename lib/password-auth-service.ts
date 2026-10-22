@@ -57,5 +57,33 @@ export function passwordAuth(db: D1Database, now = () => Math.floor(Date.now()/1
       ]);
       return token;
     },
+    // Issues a 6-digit code (valid 10 minutes) for the caller to email to the account.
+    async createEmailCode(email: string) {
+      await limit(`email-code:${await digest(email)}`,3600,5);
+      const code = String(crypto.getRandomValues(new Uint32Array(1))[0] % 1000000).padStart(6,"0");
+      await db.prepare("INSERT INTO auth_email_codes (email,code_hash,expires_at,attempts) VALUES (?,?,?,0) ON CONFLICT(email) DO UPDATE SET code_hash=excluded.code_hash,expires_at=excluded.expires_at,attempts=0")
+        .bind(email,await digest(`${email}:${code}`),now()+600).run();
+      return code;
+    },
+    // Requires the current password and the emailed code. Signs out every other
+    // session for this account; the current one stays.
+    async changePassword(email: string, current: string, next: string, code: string, sessionToken: string) {
+      if (next.length<16 || next.length>256) throw new AuthError("Choose a new password between 16 and 256 characters.",400);
+      if (!/^\d{6}$/.test(code)) throw new AuthError("Enter the 6-digit code we emailed you.",400);
+      await limit(`password-change:${await digest(email)}`,900,10);
+      const user = await db.prepare("SELECT password_hash,salt FROM auth_users WHERE email=?").bind(email).first<{password_hash:string;salt:string}>();
+      if (!user || !equal(await passwordHash(current,user.salt),user.password_hash)) throw new AuthError("Your current password is incorrect.",400);
+      // Count the attempt atomically before comparing; each code allows 5 tries.
+      const pending = await db.prepare("UPDATE auth_email_codes SET attempts=attempts+1 WHERE email=? AND expires_at>? AND attempts<5 RETURNING code_hash")
+        .bind(email,now()).first<{code_hash:string}>();
+      if (!pending) throw new AuthError("Your code has expired. Request a new one.",400);
+      if (!equal(await digest(`${email}:${code}`),pending.code_hash)) throw new AuthError("That code is incorrect.",400);
+      const salt = `${crypto.randomUUID()}${crypto.randomUUID()}`;
+      await db.batch([
+        db.prepare("UPDATE auth_users SET password_hash=?,salt=? WHERE email=?").bind(await passwordHash(next,salt),salt,email),
+        db.prepare("DELETE FROM auth_sessions WHERE email=? AND token_hash<>?").bind(email,await digest(sessionToken)),
+        db.prepare("DELETE FROM auth_email_codes WHERE email=?").bind(email),
+      ]);
+    },
   };
 }

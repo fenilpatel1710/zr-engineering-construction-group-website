@@ -22,6 +22,18 @@ Links expire after 24 hours and work once. Generating a replacement invalidates 
 
 Clients with existing passwords keep their accounts and cannot be reset using an onboarding invitation. The company can reset an existing password through the trusted account tool below. There is no public registration or automated invitation email. Removing a project prevents its pending setup link from being redeemed unless another saved project still assigns that email.
 
+## Password resets and changes
+
+Apply `drizzle/0003_invitation_kind.sql` once in the production D1 Console (after `0002`). It adds the `kind` column that separates first-time setup links from reset links, and the `auth_email_codes` table for password-change codes.
+
+Everything a client starts themselves is verified through their inbox. Owner-issued links from `/admin` don't need email verification.
+
+- **Forgot password (self-service):** `/signin` links to `/forgot-password`. A client enters their email and receives a one-use link valid for 24 hours. It sets a first password for a saved client without an account, or resets an existing account and signs out its sessions. Unknown emails get the same response. Requests are limited to 3 per email and 10 per IP per hour. This needs the Google Workspace mail secrets (`GOOGLE_SERVICE_ACCOUNT_EMAIL`, `GOOGLE_SERVICE_ACCOUNT_KEY`, optional `GMAIL_SENDER`); until they're set, the page says reset by email isn't available.
+- **Owner-issued links:** in `/admin`, each client card can **Email password link to client** (needs mail secrets) or **Create link to copy**. Clients who already have an account get a reset link instead of an error.
+- **Change password:** signed-in users open `/change-password` from the portal header. It requires the current password **and** a 6-digit code emailed to the account (valid 10 minutes, 5 tries per code, 5 codes per hour). It signs out every other session. Without the mail secrets, password changes are unavailable and clients are told to contact their project manager.
+
+A setup link can only create an account and a reset link can only change an existing one, so a setup link issued before an account existed still can't overwrite its password.
+
 ## Create the owner account or reset an existing password
 
 On a trusted computer with Node.js, run from the repository:

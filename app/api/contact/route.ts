@@ -1,11 +1,6 @@
-import { env } from "cloudflare:workers";
+import { companyMail, escapeHtml, COMPANY_EMAIL as TO, COMPANY_NAME } from "@/lib/mail";
 
 const MAX = { name: 200, company: 200, email: 254, phone: 40, details: 4000 };
-const TO = "zrengineering@zrgrouptx.com";
-
-function escapeHtml(s: string) {
-  return s.replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c] as string));
-}
 
 export async function POST(request: Request) {
   try {
@@ -31,9 +26,9 @@ export async function POST(request: Request) {
     if (!details || details.length > MAX.details) return Response.json({ error: "Describe the project." }, { status: 400 });
     if (company.length > MAX.company || phone.length > MAX.phone) return Response.json({ error: "One of the fields is too long." }, { status: 400 });
 
-    if (!env.RESEND_API_KEY) return Response.json({ error: "Email delivery is not configured. Please contact the company directly." }, { status: 503 });
+    const mail = companyMail();
+    if (!mail) return Response.json({ error: "Email delivery is not configured. Please contact the company directly." }, { status: 503 });
 
-    const from = env.CONTACT_FROM_EMAIL || "Z R Engineering Website <onboarding@resend.dev>";
     const subject = `New project inquiry from ${name}${company ? ` (${company})` : ""}`;
     const text = [
       `Name: ${name}`,
@@ -50,13 +45,39 @@ export async function POST(request: Request) {
       (phone ? `<p><b>Phone:</b> ${escapeHtml(phone)}</p>` : "") +
       `<p><b>Project details:</b></p><p>${escapeHtml(details).replace(/\n/g, "<br>")}</p>`;
 
-    const resendResponse = await fetch("https://api.resend.com/emails", {
-      method: "POST",
-      headers: { "Content-Type": "application/json", Authorization: `Bearer ${env.RESEND_API_KEY}` },
-      body: JSON.stringify({ from, to: [TO], reply_to: email, subject, text, html }),
-    });
+    try {
+      await mail.send({ to: TO, replyTo: email, subject, text, html });
+    } catch (err) {
+      console.error("Contact inquiry delivery failed:", err);
+      return Response.json({ error: "Could not send your inquiry. Please try again later." }, { status: 502 });
+    }
 
-    if (!resendResponse.ok) return Response.json({ error: "Could not send your inquiry. Please try again later." }, { status: 502 });
+    // The inquiry is already delivered, so a failed confirmation doesn't fail the request.
+    const confirmText = [
+      `Hi ${name},`,
+      "",
+      `Thank you for contacting ${COMPANY_NAME}. We received your project inquiry and will follow up by email soon.`,
+      "",
+      "Here is a copy of what you sent:",
+      "",
+      text,
+      "",
+      "If you need to add anything, just reply to this email.",
+      "",
+      COMPANY_NAME,
+      TO,
+    ].join("\n");
+    const confirmHtml = `<p>Hi ${escapeHtml(name)},</p>` +
+      `<p>Thank you for contacting ${escapeHtml(COMPANY_NAME)}. We received your project inquiry and will follow up by email soon.</p>` +
+      "<p>Here is a copy of what you sent:</p>" +
+      `<blockquote style="border-left:3px solid #ccc;margin:0;padding-left:12px">${html}</blockquote>` +
+      "<p>If you need to add anything, just reply to this email.</p>" +
+      `<p>${escapeHtml(COMPANY_NAME)}<br>${TO}</p>`;
+    try {
+      await mail.send({ to: email, replyTo: TO, subject: `We received your inquiry — ${COMPANY_NAME}`, text: confirmText, html: confirmHtml });
+    } catch (err) {
+      console.error("Contact confirmation delivery failed:", err);
+    }
 
     return Response.json({ ok: true }, { headers: { "Cache-Control": "no-store" } });
   } catch {
