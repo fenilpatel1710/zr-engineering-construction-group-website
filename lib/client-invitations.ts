@@ -19,7 +19,9 @@ async function hasAccount(db: D1Database, email: string) {
   return Boolean(await db.prepare("SELECT email FROM auth_users WHERE email=?").bind(email).first());
 }
 
-export function clientInvitations(db: D1Database, now = () => Math.floor(Date.now()/1000)) {
+// `owners` may set a first password by email even without an assigned project.
+export function clientInvitations(db: D1Database, now = () => Math.floor(Date.now()/1000), owners: readonly string[] = []) {
+  const eligible = async (email: string) => owners.includes(email) || await assignedClient(db,email);
   // A setup link can only create an account; a reset link can only change an
   // existing one. The kind is fixed when the link is issued.
   async function issue(email: string) {
@@ -43,7 +45,7 @@ export function clientInvitations(db: D1Database, now = () => Math.floor(Date.no
     async request(email: string, ip: string) {
       await limit(db,`invite-request-ip:${await digest(ip)}`,now(),10);
       await limit(db,`invite-request-email:${await digest(email)}`,now(),3);
-      if (!await hasAccount(db,email) && !await assignedClient(db,email)) return null;
+      if (!await hasAccount(db,email) && !await eligible(email)) return null;
       return issue(email);
     },
     async accept(token: string, password: string, ip: string) {
@@ -52,7 +54,7 @@ export function clientInvitations(db: D1Database, now = () => Math.floor(Date.no
       await limit(db,`invite-accept:${await digest(ip)}`,now(),30);
       const tokenHash = await digest(token);
       const invite = await db.prepare("SELECT email,kind FROM auth_invitations WHERE token_hash=? AND expires_at>?").bind(tokenHash,now()).first<{email:string;kind:InvitationKind}>();
-      if (!invite || (invite.kind==="setup" && !await assignedClient(db,invite.email))) throw new AuthError(INVALID,400);
+      if (!invite || (invite.kind==="setup" && !await eligible(invite.email))) throw new AuthError(INVALID,400);
       const salt = `${crypto.randomUUID()}${crypto.randomUUID()}`;
       const hash = await passwordHash(password,salt);
       // D1 batches are transactional, so each link can be redeemed only once.

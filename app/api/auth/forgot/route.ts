@@ -2,6 +2,7 @@ import { env } from "cloudflare:workers";
 import { checkOrigin, readBody, authFailure, requestIp } from "@/lib/password-auth";
 import { AuthError, normalizeEmail } from "@/lib/password-auth-service";
 import { clientInvitations } from "@/lib/client-invitations";
+import { OWNER_EMAILS } from "@/lib/auth";
 import { companyMail, passwordLinkEmail } from "@/lib/mail";
 export async function POST(request: Request) {
   try {
@@ -11,7 +12,7 @@ export async function POST(request: Request) {
     const mail = companyMail();
     if (!mail) throw new AuthError("Password reset by email isn't available yet. Please contact your project manager.",503);
     if (!env.DB) throw new AuthError("Sign-in storage is unavailable.",503);
-    const issued = await clientInvitations(env.DB).request(email,requestIp(request));
+    const issued = await clientInvitations(env.DB,undefined,OWNER_EMAILS).request(email,requestIp(request));
     // Same response whether or not the email has an account.
     if (issued) await mail.send(passwordLinkEmail(email,`${new URL(request.url).origin}/set-password#${issued.token}`,issued.kind));
     return Response.json({ok:true},{headers:{"Cache-Control":"no-store"}});

@@ -55,6 +55,15 @@ test("self-service requests issue links only for known emails and are rate limit
   await invites.request("client@example.com","ip");await invites.request("client@example.com","ip");
   await assert.rejects(invites.request("client@example.com","ip"),{status:429});
 });
+test("owner emails can set a first password by email without an assigned project",async()=>{
+  const {db}=fixture();let time=1000;
+  assert.equal(await clientInvitations(db,()=>time).request("admin@example.com","ip"),null);
+  const owners=clientInvitations(db,()=>time,["admin@example.com"]);
+  const {token,kind}=await owners.request("admin@example.com","ip");assert.equal(kind,"setup");
+  await assert.rejects(clientInvitations(db,()=>time).accept(token,password,"ip"),{status:400});
+  await owners.accept(token,password,"ip");
+  assert.ok(await passwordAuth(db).login("admin@example.com",password,"ip"));
+});
 test("changing password needs the current password and emailed code, and keeps only the current session",async()=>{
   const {sqlite,db,invites}=fixture();await invites.accept((await invites.create("client@example.com")).token,password,"ip");
   const auth=passwordAuth(db);const current=await auth.login("client@example.com",password,"ip");await auth.login("client@example.com",password,"ip");
