@@ -14,7 +14,7 @@ export async function POST(request: Request) {
     if (!env.DB) throw new AuthError("Sign-in storage is unavailable.",503);
     const issued = await clientInvitations(env.DB,undefined,OWNER_EMAILS).request(email,requestIp(request));
     // Same response whether or not the email has an account.
-    if (issued) await mail.send(passwordLinkEmail(email,`${new URL(request.url).origin}/set-password#${issued.token}`,issued.kind));
+    if (issued) await mail.send(passwordLinkEmail(email,`${new URL(request.url).origin}/set-password#${issued.token}`,issued.kind,OWNER_EMAILS.includes(email)));
     return Response.json({ok:true},{headers:{"Cache-Control":"no-store"}});
   } catch(error) { return authFailure(error); }
 }
