@@ -251,3 +251,4 @@ button.client-row:focus-visible { outline: 2px solid #1e5b8b; outline-offset: 1p
   .ced-file-icon { display: none; }
   .ced-foot { flex-wrap: wrap; }
 }
+.unsaved-badge { display: inline-block; margin: 0 10px; padding: 3px 8px; border-radius: 3px; background: #fbeccd; color: #7a5410; font-size: 11px; font-weight: 800; vertical-align: middle; }

@@ -1,6 +1,6 @@
 # Portal email/password login
 
-The portal now uses company-created email/password accounts stored in Cloudflare D1. No email service, ChatGPT Sites identity headers, authentication API key, or public registration is required. Existing project and file authorization still uses the signed-in email; owner access still uses the allowlist in `lib/auth.ts`.
+The portal now uses company-created email/password accounts stored in Cloudflare D1. There is no public registration. Password links, reset emails and password-change codes are sent through Google Workspace (see README); ChatGPT Sites identity headers and authentication API keys are not used. Existing project and file authorization still uses the signed-in email; owner access still uses the allowlist in `lib/auth.ts`.
 
 ## Deploy
 
@@ -16,11 +16,11 @@ Before using sign-in, open Cloudflare → D1 → your production database → Co
 
 Apply `drizzle/0002_client_invitations.sql` once in the production D1 Console after the authentication migration above. Deploy the updated app.
 
-In `/admin`, add the client's project and sign-in email, then click **Save client dashboard**. In that client's card, click **Create password setup link**, then **Copy link**. Send the link privately to that client through your established communication channel. The client opens it, chooses and confirms a password of at least 16 characters, then signs in at `/portal` with the email assigned to their project. No company-chosen password or email provider is needed.
+In `/admin`, add the client's project and sign-in email, then click **Save client dashboard**. New client emails are emailed a setup link automatically. You can also open the client, go to **Portal access**, and email or copy a link yourself. The client chooses a password of at least 16 characters, then signs in at `/portal` with the email assigned to their project.
 
 Links expire after 24 hours and work once. Generating a replacement invalidates the previous link. Treat links as credentials: anyone holding an unused link can set that client's password. Only hashed tokens are stored in D1; the token is carried in the URL fragment rather than query parameters so it is not sent in server request URLs. Reopening the editor does not retrieve old links; generate a new one if needed.
 
-Clients with existing passwords keep their accounts and cannot be reset using an onboarding invitation. The company can reset an existing password through the trusted account tool below. There is no public registration or automated invitation email. Removing a project prevents its pending setup link from being redeemed unless another saved project still assigns that email.
+Clients with existing passwords get a reset link instead of a setup link; using it changes the password and signs out their sessions. Removing a client email from every project deletes that client's sign-in account and sessions when you save.
 
 ## Password resets and changes
 
@@ -50,7 +50,7 @@ Open that SQL file locally and execute its contents in the same production D1 Co
 
 Create the owner account using the exact owner email already in `lib/auth.ts`. Then visit `/admin` to assign projects to each client's sign-in email. Clients sign in at `/portal` and see only projects/files assigned to that email. An account with no assigned projects shows an empty dashboard.
 
-There is no automatic forgotten-password email. Reset through the same trusted account tool. To disable an account, delete its row from `auth_users` and its rows from `auth_sessions` in D1, filtering by the exact normalized email.
+Clients and admins can reset their own password from **Forgot password?** on `/signin`. The trusted account tool below still works when email is unavailable. To disable a client, remove their email from every project and save.
 
 ## Security and sessions
 

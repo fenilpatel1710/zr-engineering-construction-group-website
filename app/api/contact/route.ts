@@ -1,4 +1,6 @@
+import { env } from "cloudflare:workers";
 import { companyMail, escapeHtml, COMPANY_EMAIL as TO, COMPANY_NAME } from "@/lib/mail";
+import { digest, underLimit } from "@/lib/password-auth-service";
 
 const MAX = { name: 200, company: 200, email: 254, phone: 40, details: 4000 };
 
@@ -26,8 +28,23 @@ export async function POST(request: Request) {
     if (!details || details.length > MAX.details) return Response.json({ error: "Describe the project." }, { status: 400 });
     if (company.length > MAX.company || phone.length > MAX.phone) return Response.json({ error: "One of the fields is too long." }, { status: 400 });
 
+    // Bots fill the hidden "website" field; pretend success so they don't retry.
+    if (typeof body.website === "string" && body.website.trim()) return Response.json({ ok: true });
+
     const mail = companyMail();
     if (!mail) return Response.json({ error: "Email delivery is not configured. Please contact the company directly." }, { status: 503 });
+
+    // Every inquiry sends a confirmation to the address typed in, so cap how
+    // often one visitor, one address, and the whole site can trigger emails.
+    if (env.DB) {
+      const ip = await digest(request.headers.get("cf-connecting-ip") || "local");
+      const limits = await Promise.all([
+        underLimit(env.DB, `contact-ip:${ip}`, 3600, 5),
+        underLimit(env.DB, `contact-email:${await digest(email.toLowerCase())}`, 86400, 3),
+        underLimit(env.DB, "contact-all", 3600, 60),
+      ]);
+      if (!limits.every(Boolean)) return Response.json({ error: `Too many inquiries right now. Please try again later or email us at ${TO}.` }, { status: 429 });
+    }
 
     const subject = `New project inquiry from ${name}${company ? ` (${company})` : ""}`;
     const text = [

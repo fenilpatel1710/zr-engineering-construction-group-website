@@ -121,3 +121,10 @@ test("admin sees account status and can unlock a locked-out client",async()=>{
   assert.equal((await accounts.status("client@example.com")).locked,false);
   assert.ok(await auth.login("client@example.com",password,"ip"));
 });
+test("contact rate limit allows the maximum per window, then blocks until the next window",async()=>{
+  const {underLimit}=await import("../lib/password-auth-service.ts");
+  const {db}=fixture();
+  for (let i=0;i<5;i++) assert.equal(await underLimit(db,"contact-ip:x",3600,5,7200),true);
+  assert.equal(await underLimit(db,"contact-ip:x",3600,5,7200),false);
+  assert.equal(await underLimit(db,"contact-ip:x",3600,5,10800),true);
+});

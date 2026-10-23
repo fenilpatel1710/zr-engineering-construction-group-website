@@ -15,6 +15,13 @@ export async function digest(value: string): Promise<string> {
   return Buffer.from(await crypto.subtle.digest("SHA-256", encoder.encode(value))).toString("hex");
 }
 
+// Fixed-window counter in auth_rate_limits; returns false once `maximum` is exceeded.
+export async function underLimit(db: D1Database, key: string, seconds: number, maximum: number, now = Math.floor(Date.now()/1000)) {
+  const row = await db.prepare("INSERT INTO auth_rate_limits (key,count,expires_at) VALUES (?,1,?) ON CONFLICT(key) DO UPDATE SET count=count+1 RETURNING count")
+    .bind(`${key}:${Math.floor(now/seconds)}`,now+seconds*2).first<{count:number}>();
+  return Boolean(row && row.count<=maximum);
+}
+
 export class AuthError extends Error {
   status: number;
   constructor(message: string, status: number) { super(message); this.status=status; }

@@ -34,9 +34,9 @@ function RowList<T>({ items, onChange, blank, addLabel, empty, render }: {
   </div>;
 }
 
-export function ClientEditorDialog({ project, onChange, onRemove, onClose, onSave, upload, busy, status }: {
+export function ClientEditorDialog({ project, onChange, onRemove, onClose, onSave, upload, busy, status, dirty }: {
   project: PortalProject; onChange: (p: PortalProject) => void; onRemove: () => void; onClose: () => void;
-  onSave: () => Promise<void>; upload: Uploader; busy: boolean; status: string;
+  onSave: () => Promise<void>; upload: Uploader; busy: boolean; status: string; dirty: boolean;
 }) {
   const ref = useRef<HTMLDialogElement>(null);
   const [tab, setTab] = useState<Tab>("details");
@@ -100,7 +100,7 @@ export function ClientEditorDialog({ project, onChange, onRemove, onClose, onSav
         </div>
         <div className="ced-danger">
           {confirmRemove
-            ? <><span>Remove this client and their files? This takes effect when you save.</span><button type="button" className="editor-remove" onClick={onRemove}>Yes, remove client</button><button type="button" className="ced-link" onClick={() => setConfirmRemove(false)}>Cancel</button></>
+            ? <><span>Remove this client, their files and their sign-in account? This takes effect when you save.</span><button type="button" className="editor-remove" onClick={onRemove}>Yes, remove client</button><button type="button" className="ced-link" onClick={() => setConfirmRemove(false)}>Cancel</button></>
             : <button type="button" className="editor-remove" onClick={() => setConfirmRemove(true)}>Remove client</button>}
         </div>
       </>}
@@ -170,7 +170,7 @@ export function ClientEditorDialog({ project, onChange, onRemove, onClose, onSav
     <datalist id="ced-ticket-status"><option value="Open" /><option value="In progress" /><option value="Resolved" /><option value="Closed" /></datalist>
     <datalist id="ced-doc-category"><option value="Project document" /><option value="Contract" /><option value="Drawings" /><option value="Permit" /><option value="Inspection" /><option value="Change order" /></datalist>
     <footer className="ced-foot">
-      <span role="status">{uploading || note || status}</span>
+      <span role="status">{dirty && !uploading && <span className="unsaved-badge">Unsaved changes</span>}{uploading || note || status}</span>
       <button type="button" className="ced-link" onClick={onClose}>Close</button>
       <button type="button" className="editor-save" disabled={busy || Boolean(uploading)} onClick={() => void onSave()}>{busy ? "Saving…" : "Save changes"}</button>
     </footer>
