@@ -11,6 +11,7 @@ registerHooks({resolve(specifier,context,next){
 }});
 const {clientInvitations}=await import("../lib/client-invitations.ts");
 const {passwordAuth,digest}=await import("../lib/password-auth-service.ts");
+const {clientAccounts}=await import("../lib/client-accounts.ts");
 const password="client chooses a long password";
 function fixture() {
   const sqlite=new DatabaseSync(":memory:");
@@ -105,4 +106,18 @@ test("a setup token cannot reset an account created after invitation issuance",a
   sqlite.prepare("INSERT INTO auth_users VALUES ('client@example.com','original-hash','original-salt')").run();
   await assert.rejects(invites.accept(token,password,"ip"),{status:400});
   assert.equal(sqlite.prepare("SELECT password_hash FROM auth_users").get().password_hash,"original-hash");
+});
+test("admin sees account status and can unlock a locked-out client",async()=>{
+  const {db,invites}=fixture();let time=10000;const accounts=clientAccounts(db,()=>time);
+  assert.deepEqual(await accounts.status("client@example.com"),{hasAccount:false,pendingLink:null,locked:false});
+  const {token}=await invites.create("client@example.com");
+  assert.equal((await accounts.status("client@example.com")).pendingLink.kind,"setup");
+  await invites.accept(token,password,"ip");
+  const auth=passwordAuth(db,()=>time);
+  for (let i=0;i<10;i++) await assert.rejects(auth.login("client@example.com","wrong password guess","ip"+i),{status:401});
+  await assert.rejects(auth.login("client@example.com",password,"ip"),{status:429});
+  assert.deepEqual(await accounts.status("client@example.com"),{hasAccount:true,pendingLink:null,locked:true});
+  await accounts.unlock("client@example.com");
+  assert.equal((await accounts.status("client@example.com")).locked,false);
+  assert.ok(await auth.login("client@example.com",password,"ip"));
 });
