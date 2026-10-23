@@ -4,7 +4,7 @@ import { eq } from "drizzle-orm";
 import { getDb } from "@/db";
 import { siteContent } from "@/db/schema";
 import { isOwner } from "@/lib/auth";
-import { validPortalProjects } from "@/lib/portal";
+import { validPortalProjects, type PortalProject } from "@/lib/portal";
 import { env } from "cloudflare:workers";
 import { clientInvitations } from "@/lib/client-invitations";
 import { companyMail, passwordLinkEmail } from "@/lib/mail";
@@ -38,11 +38,14 @@ export async function PUT(request: Request) {
   try { body = await request.json(); } catch { return Response.json({ error: "Invalid JSON" }, { status: 400 }); }
   const projects = body && typeof body === "object" ? (body as { projects?: unknown }).projects : undefined;
   if (!validPortalProjects(projects)) return Response.json({ error: "Check the project, invoice, client email and secure link fields." }, { status: 400 });
-  let added: string[];
+  let added: string[], orphaned: string[];
   try {
     const emails = (list: { clientEmail?: unknown }[]) => new Set(list.map(p => normalizeEmail(p.clientEmail)).filter((e): e is string => Boolean(e)));
-    const before = emails(await readProjects());
+    const previous = await readProjects();
+    const before = emails(previous);
     added = [...emails(projects)].filter(e => !before.has(e));
+    const kept = portalFiles(projects);
+    orphaned = [...portalFiles(previous)].filter(url => !kept.has(url));
     const db = getDb();
     await db.insert(siteContent).values({ id: "portal", body: JSON.stringify(projects), updatedAt: new Date().toISOString() }).onConflictDoUpdate({
       target: siteContent.id, set: { body: JSON.stringify(projects), updatedAt: new Date().toISOString() },
@@ -50,7 +53,21 @@ export async function PUT(request: Request) {
   } catch {
     return Response.json({ error: "Portal storage is unavailable" }, { status: 503 });
   }
+  await deleteFiles(orphaned);
   return Response.json({ ok: true, ...await inviteNewClients(added, new URL(request.url).origin) });
+}
+
+function portalFiles(projects: PortalProject[]) {
+  return new Set(projects.flatMap(p => [...(p.photos || []), ...(p.documents || []).map(d => d.url), ...p.invoices.map(i => i.invoiceUrl || "")])
+    .filter(url => url.startsWith("/api/media/portal/")));
+}
+
+// Deletes files that no saved project references any more. Best effort: the
+// save already succeeded, and unreferenced files are not served to clients.
+async function deleteFiles(urls: string[]) {
+  if (!urls.length || !env.BUCKET) return;
+  try { await env.BUCKET.delete(urls.map(url => url.slice("/api/media/".length))); }
+  catch (error) { console.error("Could not delete removed portal files:", error); }
 }
 
 // Emails a setup link to each newly added client email that has no account yet.
